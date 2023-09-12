@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"sync"
 	"unsafe"
+
+	"github.com/jwijenbergh/purego/internal/strings"
 )
 
 var syscall15XABI0 uintptr
@@ -81,7 +83,7 @@ func compileCallback(fn interface{}) uintptr {
 		switch in.Kind() {
 		case reflect.Struct, reflect.Interface, reflect.Func, reflect.Slice,
 			reflect.Chan, reflect.Complex64, reflect.Complex128,
-			reflect.String, reflect.Map, reflect.Invalid:
+			reflect.Map, reflect.Invalid:
 			panic("purego: unsupported argument type: " + in.Kind().String())
 		}
 	}
@@ -140,16 +142,7 @@ func callbackWrap(a *callbackArgs) {
 	stack := numOfIntegerRegisters() + numOfFloats
 	for i := range args {
 		var pos int
-		switch fnType.In(i).Kind() {
-		case reflect.Float32, reflect.Float64:
-			if floatsN >= numOfFloats {
-				pos = stack
-				stack++
-			} else {
-				pos = floatsN
-			}
-			floatsN++
-		default:
+		addInt := func() {
 			if intsN >= numOfIntegerRegisters() {
 				pos = stack
 				stack++
@@ -159,7 +152,23 @@ func callbackWrap(a *callbackArgs) {
 			}
 			intsN++
 		}
-		args[i] = reflect.NewAt(fnType.In(i), unsafe.Pointer(&frame[pos])).Elem()
+		switch fnType.In(i).Kind() {
+		case reflect.Float32, reflect.Float64:
+			if floatsN >= numOfFloats {
+				pos = stack
+				stack++
+			} else {
+				pos = floatsN
+			}
+			floatsN++
+			args[i] = reflect.NewAt(fnType.In(i), unsafe.Pointer(&frame[pos])).Elem()
+		case reflect.String:
+			addInt()
+			args[i] = reflect.ValueOf(strings.GoString(frame[pos]))
+		default:
+			addInt()
+			args[i] = reflect.NewAt(fnType.In(i), unsafe.Pointer(&frame[pos])).Elem()
+		}
 	}
 	ret := fn.Call(args)
 	if len(ret) > 0 {
